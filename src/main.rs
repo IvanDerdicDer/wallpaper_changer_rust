@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use chrono::{Local};
+use chrono::{Duration, Local, TimeZone};
 use geodate::{sun_transit, moon_transit};
 use confy;
 use serde::{Serialize, Deserialize};
@@ -19,8 +19,8 @@ struct WallpaperChangerConfig {
 impl Default for WallpaperChangerConfig {
     fn default() -> Self {
         Self {
-            longitude: 45.71422303959685,
-            latitude: 15.817379689633158,
+            longitude: 45.71,
+            latitude: 15.81,
             wallpaper_pack: "".to_string(),
         }
     }
@@ -40,12 +40,13 @@ struct WallpaperPackConfig {
 
 #[derive(Hash, PartialEq, Eq, Debug)]
 enum SunAndMoonKeys {
-    MIDNIGHT,
-    SUNRISE,
-    NOON,
-    SUNSET,
-    MOONRISE,
-    MOONSET,
+    Midnight,
+    Sunrise,
+    Noon,
+    Sunset,
+    Moonrise,
+    Moonset,
+    NextDayMidnight,
 }
 
 
@@ -57,7 +58,7 @@ fn get_day_sun_and_moon_position_times(
     let mut sun_and_moon = HashMap::new();
 
     sun_and_moon.insert(
-        SunAndMoonKeys::SUNRISE,
+        SunAndMoonKeys::Sunrise,
         sun_transit::get_sunrise(
             today_posix,
             longitude,
@@ -65,7 +66,7 @@ fn get_day_sun_and_moon_position_times(
         ).ok_or_else(|| "Can't get sunrise.")?,
     );
     sun_and_moon.insert(
-        SunAndMoonKeys::SUNSET,
+        SunAndMoonKeys::Sunset,
         sun_transit::get_sunset(
             today_posix,
             longitude,
@@ -74,14 +75,14 @@ fn get_day_sun_and_moon_position_times(
     );
 
     sun_and_moon.insert(
-        SunAndMoonKeys::NOON,
+        SunAndMoonKeys::Noon,
         sun_transit::get_noon(
             today_posix,
             longitude,
         ),
     );
     sun_and_moon.insert(
-        SunAndMoonKeys::MIDNIGHT,
+        SunAndMoonKeys::Midnight,
         sun_transit::get_midnight(
             today_posix,
             longitude,
@@ -89,7 +90,7 @@ fn get_day_sun_and_moon_position_times(
     );
 
     sun_and_moon.insert(
-        SunAndMoonKeys::MOONRISE,
+        SunAndMoonKeys::Moonrise,
         moon_transit::get_moonrise(
             today_posix,
             longitude,
@@ -97,12 +98,17 @@ fn get_day_sun_and_moon_position_times(
         ).ok_or_else(|| "Can't get moonrise.")?,
     );
     sun_and_moon.insert(
-        SunAndMoonKeys::MOONSET,
+        SunAndMoonKeys::Moonset,
         moon_transit::get_moonset(
             today_posix,
             longitude,
             latitude,
         ).ok_or_else(|| "Can't get moonset.")?,
+    );
+
+    sun_and_moon.insert(
+        SunAndMoonKeys::NextDayMidnight,
+        (Local.timestamp_opt(today_posix, 0).unwrap() + Duration::days(1)).timestamp()
     );
 
     Ok(sun_and_moon)
@@ -117,6 +123,150 @@ fn timestamp_splitter(
     let step = (end - start) / chunks;
 
     (0..chunks).map(|x| start + x * step).collect()
+}
+
+
+fn map_images_and_timestamps(
+    sun_and_moon: &HashMap<SunAndMoonKeys, i64>,
+    wallpaper_pack_config: &WallpaperPackConfig,
+    wallpaper_pack_dir: &String
+) -> (Vec<String>, Vec<i64>) {
+    let mut to_return_images: Vec<String> = vec![];
+    let mut to_return_timestamps: Vec<i64> = vec![];
+
+    to_return_images.extend(
+        wallpaper_pack_config.midnight
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Midnight],
+            sun_and_moon[&SunAndMoonKeys::Moonset],
+            wallpaper_pack_config.midnight.len() as i64
+        )
+    );
+
+    to_return_images.extend(
+        wallpaper_pack_config.moonset
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Moonset],
+            sun_and_moon[&SunAndMoonKeys::Sunrise],
+            wallpaper_pack_config.moonset.len() as i64
+        )
+    );
+
+    to_return_images.extend(
+        wallpaper_pack_config.sunrise
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Sunrise],
+            sun_and_moon[&SunAndMoonKeys::Noon],
+            wallpaper_pack_config.sunrise.len() as i64
+        )
+    );
+
+    to_return_images.extend(
+        wallpaper_pack_config.noon
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Noon],
+            sun_and_moon[&SunAndMoonKeys::Sunset],
+            wallpaper_pack_config.noon.len() as i64
+        )
+    );
+
+    to_return_images.extend(
+        wallpaper_pack_config.sunset
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Sunset],
+            sun_and_moon[&SunAndMoonKeys::Moonrise],
+            wallpaper_pack_config.sunset.len() as i64
+        )
+    );
+
+    to_return_images.extend(
+        wallpaper_pack_config.moonrise
+            .clone()
+            .iter()
+            .map(|x| {
+                PathBuf::new()
+                    .join(wallpaper_pack_dir)
+                    .join(x)
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect::<Vec<String>>()
+    );
+    to_return_timestamps.extend(
+        timestamp_splitter(
+            sun_and_moon[&SunAndMoonKeys::Moonrise],
+            sun_and_moon[&SunAndMoonKeys::NextDayMidnight],
+            wallpaper_pack_config.moonrise.len() as i64
+        )
+    );
+
+    (to_return_images, to_return_timestamps)
 }
 
 
@@ -136,14 +286,14 @@ fn main() {
         .to_path_buf()
         .join("wallpaper_packs")
         .to_str()
-        .unwrap()
+        .unwrap_or_else(|| "Unable to convert to &str")
         .to_string();
 
     if !Path::new(&wallpaper_packs_dir).exists() {
         fs::create_dir_all(&wallpaper_packs_dir).unwrap();
     }
 
-    let today = Local::now()
+    let mut today = Local::now()
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .unwrap();
@@ -153,7 +303,7 @@ fn main() {
         .to_path_buf()
         .join(&config_name)
         .to_str()
-        .unwrap()
+        .unwrap_or_else(|| "Unable to convert to &str")
         .to_string();
 
     let config: WallpaperChangerConfig = confy::load_path(&config_path).unwrap();
@@ -167,14 +317,14 @@ fn main() {
         .join(&wallpaper_packs_dir)
         .join(&config.wallpaper_pack)
         .to_str()
-        .unwrap()
+        .unwrap_or_else(|| "Unable to convert to &str")
         .to_string();
 
     let wallpaper_pack_config_path = PathBuf::new()
         .join(&wallpaper_pack_dir)
         .join(&wallpaper_pack_config_name)
         .to_str()
-        .unwrap()
+        .unwrap_or_else(|| "Unable to convert to &str")
         .to_string();
 
     let wallpaper_pack_config: WallpaperPackConfig = toml::from_str(
@@ -182,12 +332,48 @@ fn main() {
         )
         .unwrap();
 
-    let sun_and_moon = get_day_sun_and_moon_position_times(
+    let mut sun_and_moon = get_day_sun_and_moon_position_times(
         today.timestamp(),
         config.longitude,
         config.latitude,
     ).unwrap();
 
-    println!("{:?}", sun_and_moon);
-    println!("{:?}", config.wallpaper_pack);
+    let (mut images_seq, mut timestamp_seq) = map_images_and_timestamps(
+        &sun_and_moon,
+        &wallpaper_pack_config,
+        &wallpaper_pack_dir
+    );
+
+    let mut current_timestamp = Local::now().timestamp();
+    loop {
+        if current_timestamp > sun_and_moon[&SunAndMoonKeys::NextDayMidnight] {
+            today = Local::now()
+                .date_naive()
+                .and_hms_opt(0, 0, 0)
+                .unwrap();
+
+            sun_and_moon = get_day_sun_and_moon_position_times(
+                today.timestamp(),
+                config.longitude,
+                config.latitude,
+            ).unwrap();
+
+            let (images_seq_tmp, timestamp_seq_tmp) = map_images_and_timestamps(
+                &sun_and_moon,
+                &wallpaper_pack_config,
+                &wallpaper_pack_dir
+            );
+
+            images_seq = images_seq_tmp;
+            timestamp_seq = timestamp_seq_tmp;
+        }
+
+        for (index, timestamp) in timestamp_seq.iter().enumerate() {
+            if current_timestamp < *timestamp {
+                wallpaper::set_from_path(&images_seq[index]).expect("TODO: panic message");
+            }
+        }
+
+        current_timestamp = Local::now().timestamp();
+    }
 }
