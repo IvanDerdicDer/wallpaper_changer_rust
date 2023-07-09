@@ -7,5 +7,9 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.26"
+confy = "0.5.1"
 geodate = "0.4.0"
 wallpaper = "3.2.0"
+serde = { version = "1.0", features = ["derive"] }
+directories = "5.0.1"
+toml = "0.7.6"
