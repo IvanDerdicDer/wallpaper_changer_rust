@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 use directories::ProjectDirs;
 use std::fs;
 use toml;
+use std::{thread, time};
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -122,7 +123,7 @@ fn timestamp_splitter(
 ) -> Vec<i64> {
     let step = (end - start) / chunks;
 
-    (0..chunks).map(|x| start + x * step).collect()
+    (1..chunks + 1).map(|x| start + x * step).collect()
 }
 
 
@@ -130,8 +131,8 @@ fn map_images_and_timestamps(
     sun_and_moon: &HashMap<SunAndMoonKeys, i64>,
     wallpaper_pack_config: &WallpaperPackConfig,
     wallpaper_pack_dir: &String
-) -> (Vec<String>, Vec<i64>) {
-    let mut to_return_images: Vec<String> = vec![];
+) -> (Vec<PathBuf>, Vec<i64>) {
+    let mut to_return_images: Vec<PathBuf> = vec![];
     let mut to_return_timestamps: Vec<i64> = vec![];
 
     to_return_images.extend(
@@ -142,11 +143,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -164,11 +162,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -186,11 +181,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -208,11 +200,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -230,11 +219,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -252,11 +238,8 @@ fn map_images_and_timestamps(
                 PathBuf::new()
                     .join(wallpaper_pack_dir)
                     .join(x)
-                    .to_str()
-                    .unwrap()
-                    .to_string()
             })
-            .collect::<Vec<String>>()
+            .collect::<Vec<PathBuf>>()
     );
     to_return_timestamps.extend(
         timestamp_splitter(
@@ -270,7 +253,7 @@ fn map_images_and_timestamps(
 }
 
 
-fn main() {
+fn main() -> Result<(), String>{
     let app_name= "wallpaper_changer_rust".to_string();
     let config_name = "wallpaper_changer_config.toml".to_string();
     let wallpaper_pack_config_name = "wallpaper_pack_config.toml".to_string();
@@ -286,7 +269,7 @@ fn main() {
         .to_path_buf()
         .join("wallpaper_packs")
         .to_str()
-        .unwrap_or_else(|| "Unable to convert to &str")
+        .ok_or_else(|| "Unable to convert PathBuf to &str.")?
         .to_string();
 
     if !Path::new(&wallpaper_packs_dir).exists() {
@@ -303,40 +286,39 @@ fn main() {
         .to_path_buf()
         .join(&config_name)
         .to_str()
-        .unwrap_or_else(|| "Unable to convert to &str")
+        .ok_or_else(|| "Unable to convert PathBuf to &str.")?
         .to_string();
 
     let config: WallpaperChangerConfig = confy::load_path(&config_path).unwrap();
 
     if config.wallpaper_pack.eq("") {
         println!("Wallpaper pack is not selected.\nCheck the config folder at path: {config_path}");
-        return;
+        return Ok(());
     }
 
     let wallpaper_pack_dir = PathBuf::new()
         .join(&wallpaper_packs_dir)
         .join(&config.wallpaper_pack)
         .to_str()
-        .unwrap_or_else(|| "Unable to convert to &str")
+        .ok_or_else(|| "Unable to convert PathBuf to &str.")?
         .to_string();
 
     let wallpaper_pack_config_path = PathBuf::new()
         .join(&wallpaper_pack_dir)
         .join(&wallpaper_pack_config_name)
         .to_str()
-        .unwrap_or_else(|| "Unable to convert to &str")
+        .ok_or_else(|| "Unable to convert PathBuf to &str.")?
         .to_string();
 
     let wallpaper_pack_config: WallpaperPackConfig = toml::from_str(
             &fs::read_to_string(&wallpaper_pack_config_path).unwrap()
-        )
-        .unwrap();
+        ).ok().ok_or_else(|| "Unable to parse wallpaper_pack_config.toml file.")?;
 
     let mut sun_and_moon = get_day_sun_and_moon_position_times(
         today.timestamp(),
         config.longitude,
         config.latitude,
-    ).unwrap();
+    )?;
 
     let (mut images_seq, mut timestamp_seq) = map_images_and_timestamps(
         &sun_and_moon,
@@ -345,6 +327,10 @@ fn main() {
     );
 
     let mut current_timestamp = Local::now().timestamp();
+
+    println!("{:?}", current_timestamp);
+    println!("{:?}", sun_and_moon);
+    println!("{:?}", timestamp_seq);
     loop {
         if current_timestamp > sun_and_moon[&SunAndMoonKeys::NextDayMidnight] {
             today = Local::now()
@@ -356,7 +342,7 @@ fn main() {
                 today.timestamp(),
                 config.longitude,
                 config.latitude,
-            ).unwrap();
+            )?;
 
             let (images_seq_tmp, timestamp_seq_tmp) = map_images_and_timestamps(
                 &sun_and_moon,
@@ -370,9 +356,16 @@ fn main() {
 
         for (index, timestamp) in timestamp_seq.iter().enumerate() {
             if current_timestamp < *timestamp {
-                wallpaper::set_from_path(&images_seq[index]).expect("TODO: panic message");
+                wallpaper::set_from_path(
+                    images_seq[index]
+                        .to_str()
+                        .ok_or_else(|| "Unable to convert PathBuf to &str.")?
+                ).ok().ok_or_else(|| "Unable to set wallpaper.")?;
+                break;
             }
         }
+
+        thread::sleep(time::Duration::from_secs(30));
 
         current_timestamp = Local::now().timestamp();
     }
