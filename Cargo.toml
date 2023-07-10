@@ -13,3 +13,4 @@ wallpaper = "3.2.0"
 serde = { version = "1.0", features = ["derive"] }
 directories = "5.0.1"
 toml = "0.7.6"
+ctrlc = "3.4.0"

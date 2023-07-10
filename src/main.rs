@@ -1,14 +1,17 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use chrono::{Duration, Local, TimeZone};
-use geodate::{sun_transit, moon_transit};
-use confy;
-use serde::{Serialize, Deserialize};
-use directories::ProjectDirs;
-use std::fs;
-use toml;
 use std::{thread, time};
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use chrono::{Duration, Local, TimeZone};
+use confy;
+use directories::ProjectDirs;
+use geodate::{moon_transit, sun_transit};
+use serde::{Deserialize, Serialize};
+use toml;
+use ctrlc;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct WallpaperChangerConfig {
@@ -262,7 +265,7 @@ fn main() -> Result<(), String>{
         "hr",
         "IDerdic",
         &app_name
-    ).unwrap();
+    ).ok_or_else(|| "Unable to create ProjectDirs struct.")?;
 
     let wallpaper_packs_dir = project_dirs
         .data_local_dir()
@@ -273,13 +276,15 @@ fn main() -> Result<(), String>{
         .to_string();
 
     if !Path::new(&wallpaper_packs_dir).exists() {
-        fs::create_dir_all(&wallpaper_packs_dir).unwrap();
+        fs::create_dir_all(&wallpaper_packs_dir)
+            .ok()
+            .ok_or_else(|| "Unable to create wallpaper pack directory tree.")?;
     }
 
     let mut today = Local::now()
         .date_naive()
         .and_hms_opt(0, 0, 0)
-        .unwrap();
+        .ok_or_else(|| "Unable to get current day timestamp.")?;
 
     let config_path = project_dirs
         .config_local_dir()
@@ -289,7 +294,9 @@ fn main() -> Result<(), String>{
         .ok_or_else(|| "Unable to convert PathBuf to &str.")?
         .to_string();
 
-    let config: WallpaperChangerConfig = confy::load_path(&config_path).unwrap();
+    let config: WallpaperChangerConfig = confy::load_path(&config_path)
+        .ok()
+        .ok_or_else(|| "Unable to load the config file.")?;
 
     if config.wallpaper_pack.eq("") {
         println!("Wallpaper pack is not selected.\nCheck the config folder at path: {config_path}");
@@ -311,7 +318,9 @@ fn main() -> Result<(), String>{
         .to_string();
 
     let wallpaper_pack_config: WallpaperPackConfig = toml::from_str(
-            &fs::read_to_string(&wallpaper_pack_config_path).unwrap()
+            &fs::read_to_string(&wallpaper_pack_config_path)
+                .ok()
+                .ok_or_else(|| "unable to read wallpaper_pack_config.toml to String.")?
         ).ok().ok_or_else(|| "Unable to parse wallpaper_pack_config.toml file.")?;
 
     let mut sun_and_moon = get_day_sun_and_moon_position_times(
@@ -328,15 +337,19 @@ fn main() -> Result<(), String>{
 
     let mut current_timestamp = Local::now().timestamp();
 
-    println!("{:?}", current_timestamp);
-    println!("{:?}", sun_and_moon);
-    println!("{:?}", timestamp_seq);
-    loop {
+    let terminate_loop = Arc::new(AtomicBool::new(false));
+    let tl = terminate_loop.clone();
+
+    ctrlc::set_handler(move || {
+        tl.store(true, Ordering::SeqCst);
+    }).ok().ok_or_else(|| "Unable to set Ctrl+C handler.")?;
+
+    while !terminate_loop.load(Ordering::SeqCst) {
         if current_timestamp > sun_and_moon[&SunAndMoonKeys::NextDayMidnight] {
             today = Local::now()
                 .date_naive()
                 .and_hms_opt(0, 0, 0)
-                .unwrap();
+                .ok_or_else(|| "Unable to get current day timestamp.")?;
 
             sun_and_moon = get_day_sun_and_moon_position_times(
                 today.timestamp(),
@@ -369,4 +382,6 @@ fn main() -> Result<(), String>{
 
         current_timestamp = Local::now().timestamp();
     }
+
+    Ok(())
 }
