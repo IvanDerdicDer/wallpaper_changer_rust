@@ -378,10 +378,12 @@ fn main() -> Result<(), String>{
             }
         }
 
-        thread::sleep(time::Duration::from_secs(30));
+        thread::sleep(time::Duration::from_secs(1));
 
         current_timestamp = Local::now().timestamp();
     }
+
+    println!("The program was terminated using ctrl+c.");
 
     Ok(())
 }
